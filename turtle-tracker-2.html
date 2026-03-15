@@ -1,0 +1,1417 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+<title>屋久島ウミガメ追跡</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Mono:wght@400;700&family=Noto+Sans+JP:wght@300;400;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<style>
+  :root {
+    --ocean-deep: #0a1628;
+    --ocean-mid: #0d2545;
+    --ocean-surface: #0e3a6e;
+    --biolum: #00e5ff;
+    --coral: #ff6b35;
+    --seagrass: #39d353;
+    --sand: #f5d78e;
+    --foam: rgba(0,229,255,0.08);
+    --glass: rgba(13,37,69,0.85);
+  }
+
+  * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+  body {
+    background: var(--ocean-deep);
+    color: #c8e6ff;
+    font-family: 'Noto Sans JP', sans-serif;
+    height: 100dvh;
+    overflow: hidden;
+    position: relative;
+  }
+
+  /* Animated ocean background */
+  body::before {
+    content: '';
+    position: fixed;
+    inset: 0;
+    background: 
+      radial-gradient(ellipse 120% 60% at 20% 80%, rgba(0,100,200,0.15) 0%, transparent 60%),
+      radial-gradient(ellipse 80% 80% at 80% 20%, rgba(0,50,120,0.2) 0%, transparent 60%),
+      linear-gradient(180deg, #0a1628 0%, #0d2545 50%, #071020 100%);
+    z-index: -1;
+    animation: oceanPulse 8s ease-in-out infinite alternate;
+  }
+
+  @keyframes oceanPulse {
+    0% { filter: brightness(1); }
+    100% { filter: brightness(1.1); }
+  }
+
+  /* Floating particles */
+  .particle {
+    position: fixed;
+    width: 2px; height: 2px;
+    background: var(--biolum);
+    border-radius: 50%;
+    opacity: 0;
+    animation: float linear infinite;
+    z-index: 0;
+    pointer-events: none;
+  }
+
+  @keyframes float {
+    0% { transform: translateY(100vh) translateX(0); opacity: 0; }
+    10% { opacity: 0.6; }
+    90% { opacity: 0.3; }
+    100% { transform: translateY(-10vh) translateX(30px); opacity: 0; }
+  }
+
+  /* Header */
+  .header {
+    position: relative;
+    z-index: 10;
+    padding: 12px 16px 10px;
+    background: linear-gradient(180deg, rgba(10,22,40,0.95) 0%, transparent 100%);
+    display: flex;
+    align-items: center;
+    gap: 12px;
+  }
+
+  .logo {
+    width: 38px; height: 38px;
+    background: radial-gradient(circle, rgba(0,229,255,0.2), rgba(0,229,255,0.05));
+    border: 1.5px solid rgba(0,229,255,0.4);
+    border-radius: 12px;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 20px;
+    animation: logoPulse 3s ease-in-out infinite;
+  }
+
+  @keyframes logoPulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(0,229,255,0.3); }
+    50% { box-shadow: 0 0 20px rgba(0,229,255,0.6), 0 0 40px rgba(0,229,255,0.2); }
+  }
+
+  .header-text h1 {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: var(--biolum);
+    letter-spacing: 0.1em;
+    line-height: 1.2;
+  }
+
+  .header-text p {
+    font-size: 10px;
+    color: rgba(200,230,255,0.5);
+    letter-spacing: 0.05em;
+  }
+
+  .header-status {
+    margin-left: auto;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 10px;
+    color: var(--seagrass);
+    font-family: 'Space Mono', monospace;
+  }
+
+  .status-dot {
+    width: 6px; height: 6px;
+    background: var(--seagrass);
+    border-radius: 50%;
+    animation: blink 2s ease-in-out infinite;
+  }
+
+  @keyframes blink {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.2; }
+  }
+
+  /* Tabs */
+  .tabs {
+    position: relative;
+    z-index: 10;
+    display: flex;
+    gap: 4px;
+    padding: 0 16px 10px;
+  }
+
+  .tab {
+    flex: 1;
+    padding: 7px 4px;
+    background: rgba(13,37,69,0.5);
+    border: 1px solid rgba(0,229,255,0.1);
+    border-radius: 8px;
+    color: rgba(200,230,255,0.5);
+    font-size: 10px;
+    font-family: 'Space Mono', monospace;
+    cursor: pointer;
+    text-align: center;
+    transition: all 0.25s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .tab.active {
+    background: rgba(0,229,255,0.12);
+    border-color: rgba(0,229,255,0.5);
+    color: var(--biolum);
+    box-shadow: 0 0 12px rgba(0,229,255,0.15);
+  }
+
+  /* Panels */
+  .panel {
+    display: none;
+    height: calc(100dvh - 108px);
+    overflow-y: auto;
+    padding: 0 0 80px;
+    position: relative;
+    z-index: 5;
+  }
+
+  .panel.active { display: block; }
+
+  /* Map panel */
+  #mapPanel { padding: 0; }
+
+  #map {
+    width: 100%;
+    height: calc(100dvh - 108px);
+  }
+
+  .leaflet-container {
+    background: #071020 !important;
+  }
+
+  /* Map overlay controls */
+  .map-overlay {
+    position: absolute;
+    bottom: 20px;
+    left: 0; right: 0;
+    z-index: 1000;
+    padding: 0 16px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .tracking-card {
+    background: var(--glass);
+    backdrop-filter: blur(12px);
+    -webkit-backdrop-filter: blur(12px);
+    border: 1px solid rgba(0,229,255,0.2);
+    border-radius: 14px;
+    padding: 12px 14px;
+  }
+
+  .turtle-list-mini {
+    display: flex;
+    gap: 8px;
+    overflow-x: auto;
+    padding-bottom: 4px;
+    scrollbar-width: none;
+  }
+  .turtle-list-mini::-webkit-scrollbar { display: none; }
+
+  .turtle-chip {
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: rgba(0,229,255,0.06);
+    border: 1px solid rgba(0,229,255,0.15);
+    border-radius: 20px;
+    padding: 4px 10px 4px 6px;
+    cursor: pointer;
+    transition: all 0.2s;
+    font-size: 11px;
+  }
+
+  .turtle-chip.selected {
+    background: rgba(0,229,255,0.15);
+    border-color: rgba(0,229,255,0.5);
+    color: var(--biolum);
+  }
+
+  .turtle-dot {
+    width: 8px; height: 8px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .track-btn {
+    width: 100%;
+    padding: 11px;
+    background: linear-gradient(135deg, rgba(0,229,255,0.2), rgba(0,100,200,0.3));
+    border: 1px solid rgba(0,229,255,0.4);
+    border-radius: 10px;
+    color: var(--biolum);
+    font-family: 'Space Mono', monospace;
+    font-size: 11px;
+    cursor: pointer;
+    letter-spacing: 0.08em;
+    transition: all 0.2s;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+
+  .track-btn:active {
+    transform: scale(0.98);
+    background: linear-gradient(135deg, rgba(0,229,255,0.3), rgba(0,100,200,0.4));
+  }
+
+  .track-btn.recording {
+    background: linear-gradient(135deg, rgba(255,107,53,0.2), rgba(200,50,0,0.3));
+    border-color: rgba(255,107,53,0.4);
+    color: var(--coral);
+    animation: recPulse 2s ease-in-out infinite;
+  }
+
+  @keyframes recPulse {
+    0%, 100% { box-shadow: 0 0 8px rgba(255,107,53,0.2); }
+    50% { box-shadow: 0 0 20px rgba(255,107,53,0.4); }
+  }
+
+  /* Data panel */
+  .section {
+    padding: 14px 16px 0;
+  }
+
+  .section-title {
+    font-family: 'Space Mono', monospace;
+    font-size: 10px;
+    color: rgba(0,229,255,0.6);
+    letter-spacing: 0.15em;
+    text-transform: uppercase;
+    margin-bottom: 10px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+  }
+
+  .section-title::after {
+    content: '';
+    flex: 1;
+    height: 1px;
+    background: rgba(0,229,255,0.1);
+  }
+
+  .stat-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 8px;
+  }
+
+  .stat-card {
+    background: rgba(13,37,69,0.6);
+    border: 1px solid rgba(0,229,255,0.1);
+    border-radius: 12px;
+    padding: 12px;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .stat-card::before {
+    content: '';
+    position: absolute;
+    top: 0; left: 0; right: 0;
+    height: 2px;
+    background: linear-gradient(90deg, transparent, var(--biolum), transparent);
+    opacity: 0.3;
+  }
+
+  .stat-label {
+    font-size: 9px;
+    color: rgba(200,230,255,0.4);
+    letter-spacing: 0.05em;
+    margin-bottom: 4px;
+  }
+
+  .stat-value {
+    font-family: 'Space Mono', monospace;
+    font-size: 20px;
+    color: var(--biolum);
+    line-height: 1;
+  }
+
+  .stat-unit {
+    font-size: 10px;
+    color: rgba(0,229,255,0.5);
+    margin-left: 2px;
+  }
+
+  .stat-sub {
+    font-size: 9px;
+    color: rgba(200,230,255,0.3);
+    margin-top: 3px;
+  }
+
+  /* Turtle cards */
+  .turtle-card {
+    background: rgba(13,37,69,0.6);
+    border: 1px solid rgba(0,229,255,0.1);
+    border-radius: 14px;
+    padding: 14px;
+    margin-bottom: 8px;
+    cursor: pointer;
+    transition: all 0.2s;
+    position: relative;
+    overflow: hidden;
+  }
+
+  .turtle-card:active {
+    transform: scale(0.98);
+    border-color: rgba(0,229,255,0.3);
+  }
+
+  .turtle-card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+
+  .turtle-avatar {
+    width: 40px; height: 40px;
+    border-radius: 50%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-size: 20px;
+    flex-shrink: 0;
+  }
+
+  .turtle-info h3 {
+    font-size: 13px;
+    font-weight: 700;
+    color: #e0f0ff;
+    margin-bottom: 2px;
+  }
+
+  .turtle-info p {
+    font-size: 10px;
+    color: rgba(200,230,255,0.4);
+    font-family: 'Space Mono', monospace;
+  }
+
+  .turtle-badge {
+    margin-left: auto;
+    padding: 3px 8px;
+    border-radius: 10px;
+    font-size: 9px;
+    font-family: 'Space Mono', monospace;
+    letter-spacing: 0.05em;
+  }
+
+  .badge-active {
+    background: rgba(57,211,83,0.15);
+    border: 1px solid rgba(57,211,83,0.4);
+    color: var(--seagrass);
+  }
+
+  .badge-inactive {
+    background: rgba(200,230,255,0.05);
+    border: 1px solid rgba(200,230,255,0.15);
+    color: rgba(200,230,255,0.4);
+  }
+
+  .turtle-metrics {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 6px;
+  }
+
+  .metric {
+    text-align: center;
+    background: rgba(0,229,255,0.04);
+    border-radius: 8px;
+    padding: 6px 4px;
+  }
+
+  .metric-val {
+    font-family: 'Space Mono', monospace;
+    font-size: 13px;
+    color: var(--biolum);
+  }
+
+  .metric-lbl {
+    font-size: 8px;
+    color: rgba(200,230,255,0.35);
+    margin-top: 2px;
+  }
+
+  /* Log panel */
+  .log-entry {
+    display: flex;
+    gap: 12px;
+    padding: 10px 0;
+    border-bottom: 1px solid rgba(0,229,255,0.06);
+    align-items: flex-start;
+  }
+
+  .log-time {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: rgba(0,229,255,0.4);
+    flex-shrink: 0;
+    padding-top: 2px;
+    width: 50px;
+  }
+
+  .log-dot-line {
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 2px;
+    padding-top: 4px;
+  }
+
+  .log-dot {
+    width: 7px; height: 7px;
+    border-radius: 50%;
+    flex-shrink: 0;
+  }
+
+  .log-content {
+    flex: 1;
+  }
+
+  .log-title {
+    font-size: 12px;
+    color: #c8e6ff;
+    margin-bottom: 2px;
+  }
+
+  .log-detail {
+    font-size: 10px;
+    color: rgba(200,230,255,0.4);
+    font-family: 'Space Mono', monospace;
+  }
+
+  /* Add turtle modal */
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(5,12,25,0.85);
+    backdrop-filter: blur(8px);
+    z-index: 100;
+    display: none;
+    align-items: flex-end;
+    justify-content: center;
+  }
+
+  .modal-overlay.open { display: flex; }
+
+  .modal {
+    background: var(--ocean-mid);
+    border: 1px solid rgba(0,229,255,0.2);
+    border-radius: 24px 24px 0 0;
+    padding: 24px 20px 40px;
+    width: 100%;
+    max-width: 480px;
+    animation: slideUp 0.3s cubic-bezier(0.32, 0.72, 0, 1);
+  }
+
+  @keyframes slideUp {
+    from { transform: translateY(100%); opacity: 0; }
+    to { transform: translateY(0); opacity: 1; }
+  }
+
+  .modal-handle {
+    width: 36px; height: 4px;
+    background: rgba(0,229,255,0.2);
+    border-radius: 2px;
+    margin: 0 auto 20px;
+  }
+
+  .modal h2 {
+    font-family: 'Space Mono', monospace;
+    font-size: 14px;
+    color: var(--biolum);
+    margin-bottom: 20px;
+    letter-spacing: 0.08em;
+  }
+
+  .input-group {
+    margin-bottom: 14px;
+  }
+
+  .input-label {
+    font-size: 10px;
+    color: rgba(0,229,255,0.6);
+    letter-spacing: 0.1em;
+    margin-bottom: 6px;
+    font-family: 'Space Mono', monospace;
+  }
+
+  .input-field {
+    width: 100%;
+    background: rgba(0,229,255,0.06);
+    border: 1px solid rgba(0,229,255,0.15);
+    border-radius: 10px;
+    padding: 10px 12px;
+    color: #c8e6ff;
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 14px;
+    outline: none;
+    transition: border-color 0.2s;
+  }
+
+  .input-field:focus {
+    border-color: rgba(0,229,255,0.4);
+  }
+
+  .color-picker {
+    display: flex;
+    gap: 8px;
+    flex-wrap: wrap;
+  }
+
+  .color-opt {
+    width: 32px; height: 32px;
+    border-radius: 50%;
+    cursor: pointer;
+    border: 2px solid transparent;
+    transition: all 0.2s;
+  }
+
+  .color-opt.selected {
+    border-color: white;
+    transform: scale(1.15);
+    box-shadow: 0 0 10px rgba(255,255,255,0.3);
+  }
+
+  .modal-btn {
+    width: 100%;
+    padding: 13px;
+    background: linear-gradient(135deg, rgba(0,229,255,0.2), rgba(0,100,200,0.3));
+    border: 1px solid rgba(0,229,255,0.4);
+    border-radius: 12px;
+    color: var(--biolum);
+    font-family: 'Space Mono', monospace;
+    font-size: 12px;
+    cursor: pointer;
+    letter-spacing: 0.1em;
+    margin-top: 6px;
+    transition: all 0.2s;
+  }
+
+  .modal-btn:active {
+    transform: scale(0.98);
+  }
+
+  .fab {
+    position: fixed;
+    bottom: 80px;
+    right: 16px;
+    width: 50px; height: 50px;
+    background: linear-gradient(135deg, rgba(0,229,255,0.25), rgba(0,100,200,0.4));
+    border: 1.5px solid rgba(0,229,255,0.5);
+    border-radius: 50%;
+    display: flex; align-items: center; justify-content: center;
+    font-size: 22px;
+    cursor: pointer;
+    z-index: 20;
+    box-shadow: 0 0 20px rgba(0,229,255,0.2);
+    transition: all 0.2s;
+    -webkit-tap-highlight-color: transparent;
+  }
+
+  .fab:active { transform: scale(0.92); }
+
+  /* Behavior chart bars */
+  .behavior-bars {
+    margin-top: 8px;
+  }
+
+  .behavior-row {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 8px;
+  }
+
+  .behavior-label {
+    font-size: 10px;
+    color: rgba(200,230,255,0.5);
+    width: 60px;
+    flex-shrink: 0;
+  }
+
+  .behavior-bar-bg {
+    flex: 1;
+    height: 6px;
+    background: rgba(0,229,255,0.08);
+    border-radius: 3px;
+    overflow: hidden;
+  }
+
+  .behavior-bar-fill {
+    height: 100%;
+    border-radius: 3px;
+    transition: width 1s cubic-bezier(0.4, 0, 0.2, 1);
+  }
+
+  .behavior-pct {
+    font-family: 'Space Mono', monospace;
+    font-size: 9px;
+    color: rgba(200,230,255,0.4);
+    width: 28px;
+    text-align: right;
+  }
+
+  /* Chart canvas */
+  canvas {
+    width: 100% !important;
+    display: block;
+  }
+
+  /* Scrollbar */
+  ::-webkit-scrollbar { width: 3px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgba(0,229,255,0.2); border-radius: 2px; }
+
+  .empty-state {
+    text-align: center;
+    padding: 40px 20px;
+    color: rgba(200,230,255,0.3);
+    font-size: 12px;
+  }
+
+  .empty-state .emoji { font-size: 40px; margin-bottom: 12px; }
+
+  select.input-field option {
+    background: #0d2545;
+    color: #c8e6ff;
+  }
+
+  .step-dot {
+    width: 20px; height: 4px;
+    border-radius: 2px;
+    background: rgba(0,229,255,0.15);
+    transition: background 0.3s;
+  }
+  .step-dot.active { background: var(--biolum); }
+
+  textarea.input-field {
+    font-family: 'Noto Sans JP', sans-serif;
+    font-size: 13px;
+  }
+</style>
+</head>
+<body>
+
+<!-- Particles -->
+<script>
+  for(let i=0;i<20;i++){
+    const p=document.createElement('div');
+    p.className='particle';
+    p.style.cssText=`left:${Math.random()*100}%;animation-duration:${8+Math.random()*12}s;animation-delay:${Math.random()*10}s;width:${1+Math.random()*3}px;height:${1+Math.random()*3}px;opacity:0`;
+    document.body.appendChild(p);
+  }
+</script>
+
+<!-- Header -->
+<div class="header">
+  <div class="logo">🐢</div>
+  <div class="header-text">
+    <h1>TURTLE TRACK</h1>
+    <p>屋久島・ウミガメ生態追跡</p>
+  </div>
+  <div class="header-status">
+    <div class="status-dot"></div>
+    <span>ONLINE</span>
+  </div>
+</div>
+
+<!-- Tabs -->
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('map')">🗺 地図</div>
+  <div class="tab" onclick="switchTab('turtles')">🐢 個体</div>
+  <div class="tab" onclick="switchTab('data')">📊 統計</div>
+  <div class="tab" onclick="switchTab('log')">📋 記録</div>
+</div>
+
+<!-- Map Panel -->
+<div id="mapPanel" class="panel active">
+  <div id="map"></div>
+  <div class="map-overlay">
+    <div class="tracking-card">
+      <div style="font-size:9px;color:rgba(0,229,255,0.5);font-family:'Space Mono',monospace;letter-spacing:0.1em;margin-bottom:8px;">追跡中の個体</div>
+      <div class="turtle-list-mini" id="miniList"></div>
+    </div>
+    <button class="track-btn" id="trackBtn" onclick="toggleTracking()">
+      <span id="trackIcon">📍</span>
+      <span id="trackLabel">現在地を記録する</span>
+    </button>
+  </div>
+</div>
+
+<!-- Turtles Panel -->
+<div id="turtlesPanel" class="panel">
+  <div class="section">
+    <div class="section-title">登録個体</div>
+    <div id="turtleList"></div>
+  </div>
+</div>
+
+<!-- Data Panel -->
+<div id="dataPanel" class="panel">
+  <div class="section">
+    <div class="section-title">サマリー</div>
+    <div class="stat-grid" id="statsGrid"></div>
+  </div>
+  <div class="section" style="margin-top:16px;">
+    <div class="section-title">行動分布</div>
+    <div class="behavior-bars" id="behaviorBars"></div>
+  </div>
+  <div class="section" style="margin-top:16px;">
+    <div class="section-title">活動タイムライン</div>
+    <div style="background:rgba(13,37,69,0.6);border:1px solid rgba(0,229,255,0.1);border-radius:12px;padding:12px;">
+      <canvas id="timelineChart" height="100"></canvas>
+    </div>
+  </div>
+</div>
+
+<!-- Log Panel -->
+<div id="logPanel" class="panel">
+  <div class="section">
+    <div class="section-title">行動ログ</div>
+    <div id="logList"></div>
+  </div>
+</div>
+
+<!-- FAB -->
+<div class="fab" id="fabBtn" onclick="openModal()" style="display:none;">＋</div>
+
+<!-- Add Turtle Modal -->
+<div class="modal-overlay" id="modal">
+  <div class="modal">
+    <div class="modal-handle"></div>
+    <h2>// 新規個体を登録</h2>
+
+    <!-- Step indicator -->
+    <div id="stepIndicator" style="display:flex;gap:6px;margin-bottom:18px;">
+      <div class="step-dot active" id="step1dot"></div>
+      <div class="step-dot" id="step2dot"></div>
+      <div class="step-dot" id="step3dot"></div>
+      <span id="stepLabel" style="font-size:9px;color:rgba(0,229,255,0.5);font-family:'Space Mono',monospace;margin-left:4px;align-self:center;">STEP 1 / 3 — 基本情報</span>
+    </div>
+
+    <!-- Step 1: Basic info -->
+    <div id="modalStep1">
+      <div class="input-group">
+        <div class="input-label">個体名 / タグID</div>
+        <input class="input-field" id="turtleName" placeholder="例：YK-2025-A07" />
+      </div>
+      <div class="input-group">
+        <div class="input-label">種別</div>
+        <select class="input-field" id="turtleSpecies">
+          <option>アオウミガメ</option>
+          <option>アカウミガメ</option>
+          <option>タイマイ</option>
+          <option>オサガメ</option>
+          <option>ヒメウミガメ</option>
+        </select>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="input-group">
+          <div class="input-label">性別</div>
+          <select class="input-field" id="turtleSex">
+            <option value="">不明</option>
+            <option value="♀">♀ メス</option>
+            <option value="♂">♂ オス</option>
+          </select>
+        </div>
+        <div class="input-group">
+          <div class="input-label">体重 (kg)</div>
+          <input class="input-field" id="turtleWeight" type="number" placeholder="例：45" />
+        </div>
+      </div>
+      <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
+        <div class="input-group">
+          <div class="input-label">甲長 (cm)</div>
+          <input class="input-field" id="turtleLength" type="number" placeholder="例：82" />
+        </div>
+        <div class="input-group">
+          <div class="input-label">甲幅 (cm)</div>
+          <input class="input-field" id="turtleWidth" type="number" placeholder="例：74" />
+        </div>
+      </div>
+      <button class="modal-btn" onclick="goStep(2)">次へ →</button>
+    </div>
+
+    <!-- Step 2: Location -->
+    <div id="modalStep2" style="display:none;">
+      <div class="input-group">
+        <div class="input-label">発見・標識場所</div>
+        <select class="input-field" id="turtleSpot" onchange="previewSpot()">
+          <option value="">-- 場所を選択 --</option>
+          <option value="30.3195,130.4269">永田浜（メインビーチ）</option>
+          <option value="30.3100,130.4100">前浜</option>
+          <option value="30.2850,130.4050">いなか浜</option>
+          <option value="30.4500,130.5200">宮之浦沖</option>
+          <option value="30.2200,130.5500">尾之間沖</option>
+          <option value="30.3800,130.2800">口永良部島周辺</option>
+          <option value="30.7000,130.9800">種子島西岸</option>
+          <option value="custom">📍 地図上でタップ指定</option>
+        </select>
+      </div>
+      <div id="miniMapWrap" style="height:160px;border-radius:10px;overflow:hidden;border:1px solid rgba(0,229,255,0.2);margin-bottom:12px;position:relative;">
+        <div id="miniMap" style="height:100%;width:100%;"></div>
+        <div id="miniMapHint" style="position:absolute;inset:0;display:flex;align-items:center;justify-content:center;background:rgba(10,22,40,0.6);pointer-events:none;font-size:11px;color:rgba(0,229,255,0.6);font-family:'Space Mono',monospace;opacity:1;transition:opacity 0.3s;">
+          場所を選択してください
+        </div>
+      </div>
+      <div id="coordDisplay" style="font-family:'Space Mono',monospace;font-size:9px;color:rgba(0,229,255,0.5);margin-bottom:12px;min-height:14px;"></div>
+      <div class="input-group">
+        <div class="input-label">発見日時</div>
+        <input class="input-field" id="turtleDate" type="datetime-local" />
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="modal-btn" style="background:transparent;border-color:rgba(200,230,255,0.15);color:rgba(200,230,255,0.4);" onclick="goStep(1)">← 戻る</button>
+        <button class="modal-btn" onclick="goStep(3)">次へ →</button>
+      </div>
+    </div>
+
+    <!-- Step 3: Tag & notes -->
+    <div id="modalStep3" style="display:none;">
+      <div class="input-group">
+        <div class="input-label">タグカラー</div>
+        <div class="color-picker" id="colorPicker"></div>
+      </div>
+      <div class="input-group">
+        <div class="input-label">発信機 / タグ番号</div>
+        <input class="input-field" id="turtleTag" placeholder="例：PTT-2025-007" />
+      </div>
+      <div class="input-group">
+        <div class="input-label">メモ・特記事項</div>
+        <textarea class="input-field" id="turtleMemo" rows="3" placeholder="傷・行動観察・産卵痕など..." style="resize:none;line-height:1.5;"></textarea>
+      </div>
+      <div style="display:flex;gap:8px;">
+        <button class="modal-btn" style="background:transparent;border-color:rgba(200,230,255,0.15);color:rgba(200,230,255,0.4);" onclick="goStep(2)">← 戻る</button>
+        <button class="modal-btn" onclick="addTurtle()">✓ 登録する</button>
+      </div>
+    </div>
+
+    <button class="modal-btn" style="background:transparent;border-color:rgba(200,230,255,0.1);color:rgba(200,230,255,0.3);margin-top:6px;font-size:10px;" onclick="closeModal()">キャンセル</button>
+  </div>
+</div>
+
+<script>
+// =====================
+// STATE
+// =====================
+const COLORS = ['#00e5ff','#ff6b35','#39d353','#f5d78e','#b68eff','#ff6baa','#6bffd5','#ff4444'];
+
+// Yakushima area sample tracks
+let state = {
+  turtles: [
+    { id: 1, name: 'YK-2025-A01', species: 'アオウミガメ', color: '#00e5ff',
+      sex:'♀', weight: 52, length: 86, width: 74, tag:'PTT-2025-001',
+      spot:'永田浜', memo:'左後肢に小傷あり。産卵確認済み。',
+      active: true,
+      track: [
+        [30.319, 130.427],[30.322, 130.432],[30.328, 130.440],
+        [30.331, 130.455],[30.326, 130.468],[30.318, 130.462]
+      ],
+      behaviors:{feeding:35,swimming:40,resting:15,nesting:10},
+      lastSeen:'3分前', totalDist:4.2 },
+    { id: 2, name: 'YK-2025-A03', species: 'アカウミガメ', color: '#ff6b35',
+      sex:'♂', weight: 78, length: 92, width: 80, tag:'PTT-2025-003',
+      spot:'いなか浜', memo:'標識個体。2023年から継続追跡中。',
+      active: true,
+      track: [
+        [30.285, 130.405],[30.291, 130.398],[30.298, 130.390],
+        [30.305, 130.383],[30.312, 130.391]
+      ],
+      behaviors:{feeding:20,swimming:55,resting:20,nesting:5},
+      lastSeen:'11分前', totalDist:3.1 },
+    { id: 3, name: 'YK-2025-T01', species: 'タイマイ', color: '#39d353',
+      sex:'', weight: 38, length: 72, width: 64, tag:'',
+      spot:'宮之浦沖', memo:'',
+      active: false,
+      track: [
+        [30.450, 130.520],[30.446, 130.512],[30.440, 130.505]
+      ],
+      behaviors:{feeding:45,swimming:30,resting:20,nesting:5},
+      lastSeen:'2時間前', totalDist:1.6 }
+  ],
+  logs: [
+    { time:'14:32', turtle:'YK-2025-A01', color:'#00e5ff', action:'産卵行動を記録', detail:'永田浜 — 上陸確認、産卵痕あり' },
+    { time:'14:18', turtle:'YK-2025-A03', color:'#ff6b35', action:'快速遊泳', detail:'速度3.4km/h — 30.312°N, 130.391°E' },
+    { time:'13:55', turtle:'YK-2025-A01', color:'#00e5ff', action:'位置更新', detail:'30.318°N, 130.462°E — 活動中' },
+    { time:'12:10', turtle:'YK-2025-T01', color:'#39d353', action:'シグナル消失', detail:'最終位置: 30.440°N, 130.505°E' },
+    { time:'11:44', turtle:'YK-2025-A03', color:'#ff6b35', action:'休眠モード', detail:'海底付近で静止確認' },
+  ],
+  selectedTurtle: 0,
+  isTracking: false,
+  selectedColor: '#00e5ff',
+  currentTab: 'map',
+  modalStep: 1,
+  pendingLatLng: null,
+  miniMap: null,
+  miniMarker: null,
+  pickingMode: false
+};
+
+// Yakushima landmark beaches
+const LANDMARKS = [
+  { name:'永田浜', lat:30.3195, lng:130.4269, desc:'主要産卵地' },
+  { name:'いなか浜', lat:30.2850, lng:130.4050, desc:'産卵地' },
+  { name:'前浜', lat:30.3100, lng:130.4100, desc:'海岸' },
+  { name:'宮之浦港', lat:30.3953, lng:130.6567, desc:'港' },
+  { name:'尾之間温泉', lat:30.2477, lng:130.5716, desc:'南岸' },
+];
+
+// =====================
+// MAP
+// =====================
+let map, markers = {}, polylines = {};
+
+function initMap() {
+  // Center: Yakushima island
+  map = L.map('map', {
+    center: [30.33, 130.52],
+    zoom: 11,
+    zoomControl: false,
+    attributionControl: false
+  });
+
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png', {
+    attribution: '© CartoDB'
+  }).addTo(map);
+
+  L.control.attribution({ position: 'bottomleft', prefix: '' }).addTo(map);
+
+  // Landmark markers
+  LANDMARKS.forEach(lm => {
+    const icon = L.divIcon({
+      className: '',
+      html: `<div style="
+        background:rgba(245,215,142,0.15);
+        border:1px solid rgba(245,215,142,0.5);
+        border-radius:6px;
+        padding:2px 6px;
+        font-size:9px;
+        color:#f5d78e;
+        font-family:'Space Mono',monospace;
+        white-space:nowrap;
+        pointer-events:none;
+      ">${lm.name}</div>`,
+      iconAnchor: [0, 0]
+    });
+    L.marker([lm.lat, lm.lng], { icon, interactive: false }).addTo(map);
+  });
+
+  state.turtles.forEach(drawTurtle);
+  renderMiniList();
+}
+
+function drawTurtle(t) {
+  if (polylines[t.id]) map.removeLayer(polylines[t.id]);
+  if (t.track.length > 1) {
+    polylines[t.id] = L.polyline(t.track, {
+      color: t.color, weight: 2, opacity: 0.6, dashArray: '4, 6'
+    }).addTo(map);
+  }
+  if (markers[t.id]) map.removeLayer(markers[t.id]);
+  const pos = t.track[t.track.length - 1];
+  const icon = L.divIcon({
+    className: '',
+    html: `<div style="
+      width:28px;height:28px;
+      background:${t.color}22;
+      border:2px solid ${t.color};
+      border-radius:50%;
+      display:flex;align-items:center;justify-content:center;
+      font-size:14px;
+      box-shadow:0 0 12px ${t.color}66;
+      ${t.active ? `animation:markerPulse_${t.id} 2s ease-in-out infinite;` : 'opacity:0.5;'}
+    ">🐢</div>
+    <style>@keyframes markerPulse_${t.id}{0%,100%{box-shadow:0 0 8px ${t.color}66;}50%{box-shadow:0 0 20px ${t.color}cc,0 0 40px ${t.color}44;}}</style>`,
+    iconSize: [28, 28], iconAnchor: [14, 14]
+  });
+  markers[t.id] = L.marker(pos, { icon }).addTo(map)
+    .bindPopup(`
+      <div style="font-family:'Space Mono',monospace;font-size:11px;color:#c8e6ff;background:#0d2545;padding:6px;border-radius:6px;min-width:140px;">
+        <div style="color:${t.color};font-weight:bold;margin-bottom:4px;">${t.name}</div>
+        <div>${t.species}${t.sex?' · '+t.sex:''}</div>
+        <div style="color:rgba(200,230,255,0.5);margin-top:2px;">${t.spot} — ${t.lastSeen}</div>
+        ${t.weight?`<div style="margin-top:2px;">${t.weight}kg · ${t.length||'?'}cm</div>`:''}
+      </div>
+    `, { className: 'dark-popup' });
+}
+
+function renderMiniList() {
+  const el = document.getElementById('miniList');
+  el.innerHTML = state.turtles.map((t, i) => `
+    <div class="turtle-chip ${state.selectedTurtle === i ? 'selected' : ''}" onclick="selectTurtle(${i})">
+      <div class="turtle-dot" style="background:${t.color}"></div>
+      <span>${t.name}</span>
+    </div>
+  `).join('');
+}
+
+function selectTurtle(i) {
+  state.selectedTurtle = i;
+  renderMiniList();
+  const t = state.turtles[i];
+  const pos = t.track[t.track.length - 1];
+  map.flyTo(pos, 13, { duration: 1.2 });
+  markers[t.id] && markers[t.id].openPopup();
+}
+
+// =====================
+// TRACKING
+// =====================
+function toggleTracking() {
+  if (!navigator.geolocation) { alert('このブラウザではGPSが利用できません'); return; }
+  state.isTracking = !state.isTracking;
+  const btn = document.getElementById('trackBtn');
+  const icon = document.getElementById('trackIcon');
+  const label = document.getElementById('trackLabel');
+  if (state.isTracking) {
+    btn.classList.add('recording');
+    icon.textContent = '⏹';
+    label.textContent = '記録中... タップで停止';
+    navigator.geolocation.getCurrentPosition(pos => {
+      const { latitude, longitude } = pos.coords;
+      const t = state.turtles[state.selectedTurtle];
+      t.track.push([latitude, longitude]);
+      drawTurtle(t); map.panTo([latitude, longitude]);
+      addLog(t, '位置更新', `${latitude.toFixed(4)}°N, ${longitude.toFixed(4)}°E — GPS取得`);
+    }, () => {
+      const t = state.turtles[state.selectedTurtle];
+      const last = t.track[t.track.length-1];
+      const newPos = [last[0]+(Math.random()-.5)*0.004, last[1]+(Math.random()-.5)*0.004];
+      t.track.push(newPos); t.totalDist = (parseFloat(t.totalDist)||0) + 0.3;
+      drawTurtle(t);
+      addLog(t, '位置更新', `${newPos[0].toFixed(4)}°N, ${newPos[1].toFixed(4)}°E（シミュレーション）`);
+    });
+  } else {
+    btn.classList.remove('recording'); icon.textContent = '📍'; label.textContent = '現在地を記録する';
+  }
+}
+
+// =====================
+// TURTLE LIST
+// =====================
+function renderTurtleList() {
+  const el = document.getElementById('turtleList');
+  if (!state.turtles.length) {
+    el.innerHTML = `<div class="empty-state"><div class="emoji">🌊</div><p>まだ個体が登録されていません<br>＋ボタンから追加してください</p></div>`;
+    return;
+  }
+  el.innerHTML = state.turtles.map(t => `
+    <div class="turtle-card" onclick="focusTurtleOnMap(${t.id})">
+      <div class="turtle-card-header">
+        <div class="turtle-avatar" style="background:${t.color}15;border:1.5px solid ${t.color}44;">🐢</div>
+        <div class="turtle-info">
+          <h3>${t.name} ${t.sex?`<span style="font-size:10px;color:${t.color}">${t.sex}</span>`:''}</h3>
+          <p>${t.species}${t.weight?' · '+t.weight+'kg':''}${t.length?' · 甲長'+t.length+'cm':''}</p>
+        </div>
+        <div class="turtle-badge ${t.active ? 'badge-active' : 'badge-inactive'}">${t.active ? 'ACTIVE' : 'OFFLINE'}</div>
+      </div>
+      ${t.spot?`<div style="font-size:10px;color:rgba(245,215,142,0.7);margin-bottom:8px;padding-left:2px;">📍 ${t.spot}</div>`:''}
+      ${t.memo?`<div style="font-size:10px;color:rgba(200,230,255,0.4);margin-bottom:10px;padding-left:2px;line-height:1.5;">${t.memo}</div>`:''}
+      ${t.tag?`<div style="font-size:9px;color:rgba(0,229,255,0.4);font-family:'Space Mono',monospace;margin-bottom:8px;">${t.tag}</div>`:''}
+      <div class="turtle-metrics">
+        <div class="metric">
+          <div class="metric-val" style="color:${t.color}">${t.track.length}</div>
+          <div class="metric-lbl">記録点</div>
+        </div>
+        <div class="metric">
+          <div class="metric-val" style="color:${t.color}">${t.totalDist}</div>
+          <div class="metric-lbl">km 移動</div>
+        </div>
+        <div class="metric">
+          <div class="metric-val" style="color:${t.color};font-size:10px;">${t.lastSeen}</div>
+          <div class="metric-lbl">最終確認</div>
+        </div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function focusTurtleOnMap(id) {
+  switchTab('map');
+  const i = state.turtles.findIndex(t => t.id === id);
+  if (i >= 0) selectTurtle(i);
+}
+
+// =====================
+// STATS
+// =====================
+function renderStats() {
+  const active = state.turtles.filter(t => t.active).length;
+  const totalPts = state.turtles.reduce((s,t) => s+t.track.length, 0);
+  const totalDist = state.turtles.reduce((s,t) => s+(parseFloat(t.totalDist)||0), 0).toFixed(1);
+  document.getElementById('statsGrid').innerHTML = `
+    <div class="stat-card">
+      <div class="stat-label">追跡中</div>
+      <div class="stat-value" style="color:#39d353">${active}<span class="stat-unit">頭</span></div>
+      <div class="stat-sub">全${state.turtles.length}頭中</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">総記録点</div>
+      <div class="stat-value">${totalPts}<span class="stat-unit">pt</span></div>
+      <div class="stat-sub">本日累計</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">総移動距離</div>
+      <div class="stat-value">${totalDist}<span class="stat-unit">km</span></div>
+      <div class="stat-sub">全個体合計</div>
+    </div>
+    <div class="stat-card">
+      <div class="stat-label">ログ件数</div>
+      <div class="stat-value">${state.logs.length}<span class="stat-unit">件</span></div>
+      <div class="stat-sub">イベント記録</div>
+    </div>
+  `;
+  const total = {};
+  const labels = { feeding:'摂餌', swimming:'遊泳', resting:'休眠', nesting:'産卵' };
+  const bcolors = { feeding:'#f5d78e', swimming:'#00e5ff', resting:'#b68eff', nesting:'#ff6baa' };
+  state.turtles.forEach(t => { Object.entries(t.behaviors).forEach(([k,v]) => { total[k]=(total[k]||0)+v; }); });
+  const sum = Object.values(total).reduce((a,b)=>a+b,0);
+  document.getElementById('behaviorBars').innerHTML = Object.entries(total).map(([k,v]) => {
+    const pct = Math.round(v/sum*100);
+    return `<div class="behavior-row">
+      <div class="behavior-label">${labels[k]}</div>
+      <div class="behavior-bar-bg"><div class="behavior-bar-fill" style="width:${pct}%;background:${bcolors[k]};"></div></div>
+      <div class="behavior-pct">${pct}%</div>
+    </div>`;
+  }).join('');
+  renderTimeline();
+}
+
+function renderTimeline() {
+  const canvas = document.getElementById('timelineChart');
+  const ctx = canvas.getContext('2d');
+  const W = canvas.offsetWidth || 300;
+  const H = 100;
+  canvas.width = W * devicePixelRatio;
+  canvas.height = H * devicePixelRatio;
+  ctx.scale(devicePixelRatio, devicePixelRatio);
+  ctx.clearRect(0,0,W,H);
+  const hours=12, pad=20, chartW=W-pad*2, chartH=H-20;
+  ctx.strokeStyle='rgba(0,229,255,0.08)'; ctx.lineWidth=1;
+  for(let i=0;i<=hours;i+=2){
+    const x=pad+(i/hours)*chartW;
+    ctx.beginPath(); ctx.moveTo(x,5); ctx.lineTo(x,chartH); ctx.stroke();
+    ctx.fillStyle='rgba(200,230,255,0.25)'; ctx.font='8px Space Mono'; ctx.textAlign='center';
+    ctx.fillText(`${6+i}:00`,x,H-4);
+  }
+  state.turtles.forEach((t,ti) => {
+    const pts=[];
+    for(let i=0;i<=chartW;i+=4){
+      const v=20+15*Math.sin(i/20+ti)+10*Math.sin(i/8+ti*2)+Math.random()*5;
+      pts.push({x:pad+i,y:chartH-v});
+    }
+    const grad=ctx.createLinearGradient(0,0,0,chartH);
+    grad.addColorStop(0,t.color+'44'); grad.addColorStop(1,t.color+'00');
+    ctx.beginPath(); ctx.moveTo(pts[0].x,chartH);
+    pts.forEach(p=>ctx.lineTo(p.x,p.y)); ctx.lineTo(pts[pts.length-1].x,chartH);
+    ctx.closePath(); ctx.fillStyle=grad; ctx.fill();
+    ctx.beginPath(); pts.forEach((p,i)=>i===0?ctx.moveTo(p.x,p.y):ctx.lineTo(p.x,p.y));
+    ctx.strokeStyle=t.color; ctx.lineWidth=1.5; ctx.stroke();
+  });
+}
+
+// =====================
+// LOG
+// =====================
+function renderLog() {
+  const el = document.getElementById('logList');
+  el.innerHTML = state.logs.map(l => `
+    <div class="log-entry">
+      <div class="log-time">${l.time}</div>
+      <div class="log-dot-line"><div class="log-dot" style="background:${l.color}"></div></div>
+      <div class="log-content">
+        <div class="log-title"><span style="color:${l.color}">${l.turtle}</span> — ${l.action}</div>
+        <div class="log-detail">${l.detail}</div>
+      </div>
+    </div>
+  `).join('');
+}
+
+function addLog(t, action, detail) {
+  const now = new Date();
+  state.logs.unshift({ time:`${now.getHours()}:${String(now.getMinutes()).padStart(2,'0')}`, turtle:t.name, color:t.color, action, detail });
+  if (state.currentTab === 'log') renderLog();
+}
+
+// =====================
+// TABS
+// =====================
+function switchTab(tab) {
+  state.currentTab = tab;
+  document.querySelectorAll('.tab').forEach((el,i) => {
+    el.classList.toggle('active', ['map','turtles','data','log'][i] === tab);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById(tab+'Panel').classList.add('active');
+  document.getElementById('fabBtn').style.display = tab === 'turtles' ? 'flex' : 'none';
+  if (tab==='turtles') renderTurtleList();
+  if (tab==='data') renderStats();
+  if (tab==='log') renderLog();
+  if (tab==='map') setTimeout(() => map && map.invalidateSize(), 100);
+}
+
+// =====================
+// MODAL — MULTI-STEP
+// =====================
+function openModal() {
+  goStep(1);
+  document.getElementById('modal').classList.add('open');
+  // Set default datetime to now
+  const now = new Date();
+  now.setMinutes(now.getMinutes() - now.getTimezoneOffset());
+  document.getElementById('turtleDate').value = now.toISOString().slice(0,16);
+  renderColorPicker();
+  // Init mini map after modal is shown
+  setTimeout(initMiniMap, 200);
+}
+
+function closeModal() {
+  document.getElementById('modal').classList.remove('open');
+  state.pickingMode = false;
+  if (state.miniMap) { state.miniMap.remove(); state.miniMap = null; state.miniMarker = null; }
+}
+
+function goStep(n) {
+  state.modalStep = n;
+  [1,2,3].forEach(i => {
+    document.getElementById(`modalStep${i}`).style.display = i===n ? 'block' : 'none';
+    document.getElementById(`step${i}dot`).classList.toggle('active', i<=n);
+  });
+  const labels = { 1:'STEP 1 / 3 — 基本情報', 2:'STEP 2 / 3 — 発見場所', 3:'STEP 3 / 3 — タグ・メモ' };
+  document.getElementById('stepLabel').textContent = labels[n];
+  if (n===2) setTimeout(initMiniMap, 200);
+}
+
+function initMiniMap() {
+  if (state.miniMap) return;
+  const el = document.getElementById('miniMap');
+  if (!el) return;
+  state.miniMap = L.map('miniMap', { center:[30.33,130.52], zoom:10, zoomControl:false, attributionControl:false });
+  L.tileLayer('https://{s}.basemaps.cartocdn.com/dark_all/{z}/{x}/{y}{r}.png').addTo(state.miniMap);
+  // Landmarks
+  LANDMARKS.forEach(lm => {
+    L.circleMarker([lm.lat,lm.lng],{radius:4,color:'#f5d78e',fillColor:'#f5d78e',fillOpacity:0.7,weight:1}).addTo(state.miniMap);
+  });
+  state.miniMap.on('click', e => {
+    if (!state.pickingMode) return;
+    placePickedMarker(e.latlng.lat, e.latlng.lng);
+  });
+}
+
+function previewSpot() {
+  const val = document.getElementById('turtleSpot').value;
+  if (!val) return;
+  if (val === 'custom') {
+    state.pickingMode = true;
+    document.getElementById('miniMapHint').style.opacity = '1';
+    document.getElementById('miniMapHint').textContent = '🗺 地図をタップして場所を指定';
+    return;
+  }
+  state.pickingMode = false;
+  const [lat, lng] = val.split(',').map(Number);
+  placePickedMarker(lat, lng);
+}
+
+function placePickedMarker(lat, lng) {
+  state.pendingLatLng = [lat, lng];
+  document.getElementById('coordDisplay').textContent = `📍 ${lat.toFixed(4)}°N, ${lng.toFixed(4)}°E`;
+  document.getElementById('miniMapHint').style.opacity = '0';
+  if (!state.miniMap) return;
+  if (state.miniMarker) state.miniMap.removeLayer(state.miniMarker);
+  const icon = L.divIcon({
+    className:'',
+    html:`<div style="width:18px;height:18px;background:${state.selectedColor}33;border:2px solid ${state.selectedColor};border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:10px;">🐢</div>`,
+    iconSize:[18,18], iconAnchor:[9,9]
+  });
+  state.miniMarker = L.marker([lat,lng],{icon}).addTo(state.miniMap);
+  state.miniMap.setView([lat,lng], 12, {animate:true});
+}
+
+function renderColorPicker() {
+  document.getElementById('colorPicker').innerHTML = COLORS.map(c => `
+    <div class="color-opt ${state.selectedColor===c?'selected':''}"
+      style="background:${c}" onclick="selectColor('${c}')"></div>
+  `).join('');
+}
+
+function selectColor(c) {
+  state.selectedColor = c;
+  renderColorPicker();
+  // Update mini marker color if exists
+  if (state.pendingLatLng) placePickedMarker(state.pendingLatLng[0], state.pendingLatLng[1]);
+}
+
+function addTurtle() {
+  const name = document.getElementById('turtleName').value.trim();
+  const species = document.getElementById('turtleSpecies').value;
+  const sex = document.getElementById('turtleSex').value;
+  const weight = parseFloat(document.getElementById('turtleWeight').value) || 0;
+  const length = parseFloat(document.getElementById('turtleLength').value) || 0;
+  const width = parseFloat(document.getElementById('turtleWidth').value) || 0;
+  const tag = document.getElementById('turtleTag').value.trim();
+  const memo = document.getElementById('turtleMemo').value.trim();
+  const spotSelect = document.getElementById('turtleSpot');
+  const spotName = spotSelect.options[spotSelect.selectedIndex]?.text || '';
+
+  if (!name) { goStep(1); alert('個体名を入力してください'); return; }
+
+  // Determine initial position
+  let initPos;
+  if (state.pendingLatLng) {
+    initPos = state.pendingLatLng;
+  } else {
+    // Default: random around Yakushima
+    initPos = [30.30 + (Math.random()-.5)*0.15, 130.45 + (Math.random()-.5)*0.2];
+  }
+
+  const id = Date.now();
+  const turtle = {
+    id, name, species, sex, color: state.selectedColor,
+    weight, length, width, tag,
+    spot: spotName === '-- 場所を選択 --' ? '' : (spotName === '📍 地図上でタップ指定' ? '指定位置' : spotName),
+    memo,
+    active: true,
+    track: [initPos],
+    behaviors:{feeding:25,swimming:45,resting:20,nesting:10},
+    lastSeen:'たった今', totalDist:0
+  };
+
+  state.turtles.push(turtle);
+  drawTurtle(turtle);
+  addLog(turtle, '新規登録', `${species}${sex?' · '+sex:''} · ${weight}kg${length?' · 甲長'+length+'cm':''}`);
+  renderTurtleList();
+  renderMiniList();
+  closeModal();
+
+  // Reset fields
+  ['turtleName','turtleWeight','turtleLength','turtleWidth','turtleTag','turtleMemo'].forEach(id => {
+    const el = document.getElementById(id); if(el) el.value='';
+  });
+  document.getElementById('turtleSpot').value='';
+  state.pendingLatLng = null;
+}
+
+// =====================
+// INIT
+// =====================
+window.addEventListener('load', () => {
+  initMap();
+  renderMiniList();
+});
+</script>
+</body>
+</html>
